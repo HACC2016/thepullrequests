@@ -21,6 +21,7 @@
  * Since I will be keeping this tutorial up-to-date for the foreseeable future,
  * I am going to work with the copy of the class provided in WordPress core.
  */
+const SEARCH_ARG = 's';
 if ( ! class_exists( 'WP_List_Table' ) )
 	require_once( ABSPATH . 'wp-admin/includes/class-wp-list-table.php' );
 
@@ -105,6 +106,7 @@ class Inmate_List_Table extends WP_List_Table {
 			case 'POD_CELL':
 			case 'INC_DATE':
 			case 'VISIT_CODE':
+			case 'VISITOR_COUNT':
 				return $item->$column_name;
 			default:
 				//Show the whole array for troubleshooting purposes
@@ -187,7 +189,8 @@ class Inmate_List_Table extends WP_List_Table {
 			'INMATE_NAME'	=> 'Inmate Name',
 			'POD_CELL'	=> 'Pod/Cell',
 			'INC_DATE'	=> 'Incarceration Date',
-			'VISIT_CODE'	=> 'Visit Code'
+			'VISIT_CODE'	=> 'Visit Code',
+			'VISITOR_COUNT'	=> '# Visitors Approved / In System'
 		);
 	}
 
@@ -299,28 +302,9 @@ class Inmate_List_Table extends WP_List_Table {
 		'VISIT_CODE'	=> 'Visit Code
 	 */
 		// s=robert
-		$searchString =  $_GET['s'];
-		$prefix = $wpdb->base_prefix;
 
-		// WHERE name LIKE '%w%';
-		$base_query = "SELECT i.INMATE_ID,".
-		              " i.INMATE_NAME,".
-		              " i.POD_CELL, " .
-		              " i.INC_DATE, " .
-		              "CONCAT(i.VISIT_CODE, '  - ', v.description ) as VISIT_CODE " .
-		              "  FROM " .
-		              $prefix . "inmates i," .
-		              $prefix . "inmate_visitation_status v" .
-		              " WHERE i.VISIT_CODE = v.VISITATION_STATUS_CODE";
-		if (!empty($searchString)){
-			$base_query = $base_query . " AND " .
-											" ( i.INMATE_NAME like '%" . $searchString . "%' " .
-		                                     " OR i.INMATE_ID like '%" . $searchString . "%' " .
-			                                  " OR i.POD_CELL like '%" . $searchString . "%' " .
-		                                    " )";
-		}
+		$base_query = $this->get_inmate_sql_query();
 
-		$base_query = $base_query . " ; " ;
 
 		$data = $wpdb->get_results($base_query);
 
@@ -336,7 +320,7 @@ class Inmate_List_Table extends WP_List_Table {
 		function usort_reorder( $a, $b ) {
 
 			//If no sort, default to title
-			$orderby = ( ! empty( $_REQUEST['orderby'] ) ) ? $_REQUEST['orderby'] : 'title';
+			$orderby = ( ! empty( $_REQUEST['orderby'] ) ) ? $_REQUEST['orderby'] : 'INMATE_ID';
 			//If no order, default to asc
 			$order = ( ! empty( $_REQUEST['order'] ) ) ? $_REQUEST['order'] : 'asc';
 			//Determine sort order
@@ -344,7 +328,7 @@ class Inmate_List_Table extends WP_List_Table {
 			//Send final sort direction to usort
 			return ( 'asc' === $order ) ? $result : -$result;
 		}
-		usort( $data, 'usort_reorder' );
+		 // usort( $data, 'usort_reorder' );
 
 
 		/***********************************************************************
@@ -411,6 +395,74 @@ class Inmate_List_Table extends WP_List_Table {
 		);
 	}
 
+	/**
+	 * @param $wpdb
+	 * @return string
+	 */
+	public function get_inmate_sql_query()
+	{
+
+		global $wpdb; //This is used only if making any database queries
+
+		$searchString = '';
+		if (isset($_GET[SEARCH_ARG])) {
+			$searchString = $_GET[SEARCH_ARG];
+		}
+		$prefix = $wpdb->base_prefix;
+
+		// WHERE name LIKE '%w%';
+		$base_query = "SELECT i.INMATE_ID," .
+			" i.INMATE_NAME," .
+			" i.POD_CELL, " .
+			" i.INC_DATE, " .
+			"CONCAT(i.VISIT_CODE, '  - ', v.description ) as VISIT_CODE ," .
+			' CONCAT ( '.
+			"     ( SELECT COUNT(*) from " . $prefix . "inmate_visitors vis ".
+			"                        where vis.inmate_id = i.inmate_id and VISITOR_STATUS = 'Approved') , " .
+			" '/', ".
+			"     ( SELECT COUNT(*) from " . $prefix . "inmate_visitors vis ".
+			"                        where vis.inmate_id = i.inmate_id ) " .
+			" ) " .
+			" as VISITOR_COUNT " .
+			"  FROM " .
+			$prefix . "inmates i," .
+			$prefix . "inmate_visitation_status v" .
+			" WHERE i.VISIT_CODE = v.VISITATION_STATUS_CODE";
+		if (!empty($searchString)) {
+			if (!empty($_GET['fuzzy-search-submit'])){
+				$base_query = $base_query . " AND " .
+					" ( match (i.INMATE_NAME) against ('" . $searchString . "' IN BOOLEAN MODE) " .
+					" OR match(i.INMATE_ID) against ('" . $searchString . "' IN BOOLEAN MODE) " .
+					" )";
+			} else {
+				$base_query = $base_query . " AND " .
+					" ( i.INMATE_NAME like '%" . $searchString . "%' " .
+					" OR i.INMATE_ID like '%" . $searchString . "%' " .
+					" OR i.POD_CELL like '%" . $searchString . "%' " .
+					" )";
+
+			}
+		}
+
+		$base_query = $base_query . ' ORDER BY ';
+
+		if (!empty($_REQUEST['orderby'])) {
+
+			$order = (!empty($_REQUEST['order'])) ? $_REQUEST['order'] : 'asc';
+
+			$base_query = $base_query . $_REQUEST['orderby'] . ' ' . $order . ', ';
+
+		}
+		$base_query = $base_query . "  i.INMATE_ID ";
+
+		$base_query = $base_query . " ; ";
+
+
+		if (isset($_GET['debug'])) {
+			echo $base_query;
+		}
+		return $base_query;
+	}
 
 
 }
@@ -1027,7 +1079,7 @@ function generate_visitors_table( $inmate_id, $prefix, $wpdb ) {
 	                  " v.VISITOR_PIN, " .
 	                  " v.APPROVAL_DATE, " .
 	                  " v.VISITOR_STATUS, " .
-	                  " v.AUTO_APPROVE, " .
+	                  " v.VISITOR_MESSAGE, " .
 		 		      " u.user_login " .
 	                  "  FROM " .
 	                  $prefix . "inmate_visitors v" .
@@ -1099,7 +1151,7 @@ $my_column = $row->column_name;}
 					VISITOR_PIN
 					APPROVAL_DATE
 					VISITOR_STATUS
-					AUTO_APPROVE
+					VISITOR_MESSAGE
 					WP_USER_ID
 				 */
 				?>
@@ -1130,7 +1182,7 @@ $my_column = $row->column_name;}
 			</tbody>
 		</table>
 		<br/>
-		<a href="./users.php?page=add_or_update_visitor&inmate_id=<?php echo $inmate_id ?>" type="submit" name="addNewVisitor" id="addNewVisitor" class="button button-secondary" value="Add New Visitor">  Add New Visitor</a>
+		<a href="./users.php?page=<?php echo 'add_or_update_visitor'?> &inmate_id=<?php echo $inmate_id ?>" type="submit" name="addNewVisitor" id="addNewVisitor" class="button button-secondary" value="Add New Visitor">  Add New Visitor</a>
 
 
 		<?php
@@ -1171,17 +1223,32 @@ function all_inmates_render_list_page(){
 	//Fetch, prepare, sort, and filter our data...
 	$testListTable->prepare_items();
 
+
+	global $wp;
+	$current_url = get_current_URL();
+
+	$csv_url = add_query_arg('format','csv',$current_url);
+
 	?>
 	<div class="wrap">
 
 		<div id="icon-users" class="icon32"><br/></div>
-		<h1><span class="dashicons dashicons-editor-ul"></span> Inmate List <a href="./users.php?page=add_or_update_inmate" class="page-title-action">Add New</a> |
-			<a href="./wp-admin/user-new.php" class="page-title-action">Dowload as Excel/CSV</a> </h1>
+		<h1><span class="dashicons dashicons-editor-ul"></span> Inmate List <a href="./users.php?page=<?php echo 'add_or_update_inmate'?>" class="page-title-action">Add New</a> |
+			<a href="<?php echo $csv_url?>" class="page-title-action">Dowload as Excel/CSV</a> </h1>
 
 		<?php
-			if (!empty($_GET['s'])){
+			if (!empty($_GET[SEARCH_ARG])){
+
+				$fuzzy = '';
+
+				if (isset($_GET['fuzzy-search-submit'])){
+					$fuzzy = " <em>fuzzy</em> ";
+				}
+
 				?>
-		<h3>Showing search results for "<?php echo $_GET['s']; ?>"</h3>
+
+
+		<h3>Showing <?= $fuzzy ?> search results for "<?php echo $_GET[SEARCH_ARG]; ?>" <a href="./users.php?page=all_inmates_list" class="page-title-action">Clear Search</a></h3>
 
 			<?php
 			}
@@ -1190,8 +1257,15 @@ function all_inmates_render_list_page(){
 		<form id="inmate-list-filter" method="get">
 			<p class="search-box">
 				<label class="screen-reader-text" for="user-search-input">Search Inmates:</label>
-				<input type="search" id="user-search-input" name="s" value="<?php echo $_GET['s']; ?>">
-				<input type="submit" id="search-submit" class="button" value="Search Inmates"></p>
+				<?php $search ='';
+				if (isset( $_GET[SEARCH_ARG])){
+					$search = $_GET[SEARCH_ARG];
+				}
+				?>
+
+				<input type="search" id="user-search-input" name="s" value="<?php echo $search; ?>">
+				<input type="submit" name="search-submit" id="search-submit" class="button" value="Search Inmates">
+				<input type="submit" name ="fuzzy-search-submit" id="fuzzy-search-submit" class="button" value="Fuzzy Search"></p>
 			<!-- For plugins, we also need to ensure that the form posts back to our current page -->
 			<input type="hidden" name="page" value="<?php echo $_REQUEST['page'] ?>" />
 

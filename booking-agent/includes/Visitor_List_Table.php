@@ -104,7 +104,7 @@ DATE_OF_BIRTH
 VISITOR_PIN
 APPROVAL_DATE
 VISITOR_STATUS
-AUTO_APPROVE
+VISITOR_MESSAGE
 WP_USER_ID*/
 			// case 'INMATE_ID':
 			case 'RELATIONSHIP':
@@ -155,9 +155,12 @@ WP_USER_ID*/
 
 	function column_visitor_name( $item ) {
 
+		$visitorNameRow = sprintf( '<a href="?page=%s&action=%s&visitor_id=%s">'.$item->VISITOR_NAME .'</a>', 'all_visitors_list', 'view', $item->VISIT_REL_ID);
+
+		$fullRow = $visitorNameRow;
 
 		//Return the title contents
-		return sprintf( '<a href="?page=%s&action=%s&visitor_id=%s">'.$item->VISITOR_NAME .'</a>', 'all_visitors_list', 'view', $item->VISIT_REL_ID);
+		return $fullRow;
 	}
 
 	/*
@@ -326,7 +329,10 @@ WP_USER_ID*/
 		'VISIT_CODE'	=> 'Visit Code
 	 */
 		// s=robert
-		$searchString =  $_GET['s'];
+		$searchString ='';
+		if (isset($_GET['s'])) {
+			$searchString = $_GET['s'];
+		}
 		$prefix = $wpdb->base_prefix;
 
 		/*
@@ -339,7 +345,7 @@ DATE_OF_BIRTH
 VISITOR_PIN
 APPROVAL_DATE
 VISITOR_STATUS
-AUTO_APPROVE
+VISITOR_MESSAGE
 WP_USER_ID
 		 */
 
@@ -370,7 +376,21 @@ WP_USER_ID
 		                                    " )";
 		}
 
-		// echo $base_query;
+		$base_query = $base_query . ' ORDER BY ';
+
+		if (!empty( $_REQUEST['orderby'])){
+
+			$order = (!empty($_REQUEST['order'])) ? $_REQUEST['order'] : 'asc';
+
+			$base_query = $base_query . $_REQUEST['orderby'] . ' '. $order .', ';
+
+		}
+		$base_query = $base_query . "  vis.VISITOR_NAME,i.INMATE_NAME,vis.RELATIONSHIP  ";
+
+		if (isset($_GET['debug'])) {
+			echo $base_query;
+		}
+
 
 		$base_query = $base_query . " ; " ;
 
@@ -387,8 +407,12 @@ WP_USER_ID
 		 */
 		function usort_reorder( $a, $b ) {
 
+			return ;
+
+			// just kept here for demo purposes, but we're sorting on the database
+
 			//If no sort, default to title
-			$orderby = ( ! empty( $_REQUEST['orderby'] ) ) ? $_REQUEST['orderby'] : 'title';
+			$orderby = ( ! empty( $_REQUEST['orderby'] ) ) ? $_REQUEST['orderby'] : 'VISITOR_NAME';
 			//If no order, default to asc
 			$order = ( ! empty( $_REQUEST['order'] ) ) ? $_REQUEST['order'] : 'asc';
 			//Determine sort order
@@ -396,8 +420,7 @@ WP_USER_ID
 			//Send final sort direction to usort
 			return ( 'asc' === $order ) ? $result : -$result;
 		}
-		usort( $data, 'usort_reorder' );
-
+		// usort( $data, 'usort_reorder' );
 
 		/***********************************************************************
 		 * ---------------------------------------------------------------------
@@ -579,10 +602,11 @@ function add_or_update_visitor(){
 		$wpdb->update($wpdb->prefix . 'inmate_visitors', array(
 			'visitor_name' => $_GET['visitor_name'],
 			'visitor_pin' => $_GET['pin'],
+			'visitor_message' => $_GET['visitor_message'],
 			'date_of_birth' => $_GET['date_of_birth'],
 			'visitor_status' => $_GET['status']),
 			array('visit_rel_id'=>$visitor_id),
-			array('%s','%s','%s', '%s'),
+			array('%s','%s','%s','%s', '%s'),
 			array('%s') );
 
 		 // $wpdb->show_errors();
@@ -622,17 +646,18 @@ DATE_OF_BIRTH
 VISITOR_PIN
 APPROVAL_DATE
 VISITOR_STATUS
-AUTO_APPROVE
+VISITOR_MESSAGE
 WP_USER_ID
 		 */
 				// record does not exist, lets add it
 				$wpdb->insert($wpdb->prefix . 'inmate_visitors', array('inmate_id' => $_GET['inmate_id'],
 				                                             'visitor_name' => $_GET['visitor_name'],
 															'visitor_pin' => $_GET['pin'],
+															'visitor_message' => $_GET['visitor_message'],
 															'relationship' => $_GET['relationship'],
 				                                             'date_of_birth' => $_GET['date_of_birth'],
 				                                             'visitor_status' => $_GET['status']),
-					array('%s', '%s', '%s', '%s', '%s','%s' ) );
+					array('%s', '%s', '%s','%s', '%s', '%s','%s' ) );
 
 		//exit( var_dump( $wpdb->last_query ) );
 
@@ -695,6 +720,9 @@ Visit Cod
 					   value="<?php echo $_GET['pin'] ?>"
 					   class="regular-text"/></td>
 		</tr>
+
+
+
 		<tr>
 			<th><label for="date_of_birth">Date of Birth</label></th>
 			<td><input type="date" name="date_of_birth"
@@ -740,6 +768,13 @@ Visit Cod
 			<td><input type="text" name="relationship"
 					   value="<?php echo $_GET['relationship'] ?>"
 					   class="regular-text"/></td>
+		</tr>
+
+		<tr>
+			<th><label for="pin">Visitor Message</label></th>
+			<td><textarea name="visitor_message"
+					   style="width: 600px; height: 100px;"
+					   class="regular-text"><?php echo $_GET['visitor_message'] ?></textarea></td>
 		</tr>
 
 		<?php
@@ -816,29 +851,7 @@ function display_visitor_details($visitor_id, $editable = true){
 
 	// echo $wp_user_id;
 
-	$base_query = "SELECT " .
-		" vis.VISITOR_NAME, " .
-		" vis.VISITOR_PIN, " .
-		" i.INMATE_ID,".
-		" vis.VISIT_REL_ID,".
-		" i.INMATE_NAME,".
-		" vis.RELATIONSHIP, " .
-		" vis.DATE_OF_BIRTH, " .
-		" vis.VISITOR_PIN, " .
-		" vis.APPROVAL_DATE, " .
-		" vis.VISITOR_STATUS, " .
-		"CONCAT(i.VISIT_CODE, '  - ', v.description ) as VISIT_CODE " .
-		"  FROM " .
-		$prefix . "inmate_visitors vis left join " .
-		$prefix . "inmates i " .
-		" on vis.INMATE_ID = i.INMATE_ID left join " .
-		$prefix . "inmate_visitation_status v " .
-		" on i.VISIT_CODE = v.VISITATION_STATUS_CODE " .
-		" WHERE vis.VISIT_REL_ID = " . $visitor_id . ";" ;
-
-
-	// echo $base_query;
-	$data = $wpdb->get_row($base_query);
+	$data = get_visitor_and_inmate_data_by_visitor_id($visitor_id);
 
 	?>
 	<h3><span class="dashicons dashicons-welcome-widgets-menus"></span> Visitor Details</h3>
@@ -909,6 +922,14 @@ function display_visitor_details($visitor_id, $editable = true){
 						?>
 					</select></td>
 			</tr>
+
+			<tr>
+				<th><label for="visitor_message">Visitor Message</label></th>
+				<td><textarea name="visitor_message"
+						   style="width: 600px; height: 100px;"
+						   class="regular-text"><?php echo $data->VISITOR_MESSAGE ?></textarea></td>
+			</tr>
+
 	<!--		<tr>
 				<th><label for="relationship">Relationship</label></th>
 				<td><input type="text" name="relationship"
@@ -964,6 +985,45 @@ function display_visitor_details($visitor_id, $editable = true){
 
 }
 
+/**
+ * @param $visitor_id
+ * @param $prefix
+ * @param $wpdb
+ * @return mixed
+ */
+function get_visitor_and_inmate_data_by_visitor_id($visitor_id)
+{
+
+	global $wpdb;
+	$prefix = $wpdb->base_prefix;
+
+	$base_query = "SELECT " .
+		" vis.VISITOR_NAME, " .
+		" vis.VISITOR_PIN, " .
+		" i.INMATE_ID," .
+		" vis.VISIT_REL_ID," .
+		" i.INMATE_NAME," .
+		" vis.RELATIONSHIP, " .
+		" vis.DATE_OF_BIRTH, " .
+		" vis.VISITOR_PIN, " .
+		" vis.APPROVAL_DATE, " .
+		" vis.VISITOR_STATUS,
+		 vis.VISITOR_MESSAGE," .
+		"CONCAT(i.VISIT_CODE, '  - ', v.description ) as VISIT_CODE " .
+		"  FROM " .
+		$prefix . "inmate_visitors vis left join " .
+		$prefix . "inmates i " .
+		" on vis.INMATE_ID = i.INMATE_ID left join " .
+		$prefix . "inmate_visitation_status v " .
+		" on i.VISIT_CODE = v.VISITATION_STATUS_CODE " .
+		" WHERE vis.VISIT_REL_ID = " . $visitor_id . ";";
+
+
+	// echo $base_query;
+	$data = $wpdb->get_row($base_query);
+	return $data;
+}
+
 
 function generate_inmates_table($visitor_id, $wp_user_id  )
 {
@@ -979,7 +1039,7 @@ function generate_inmates_table($visitor_id, $wp_user_id  )
 	$visitors_query = "SELECT v.RELATIONSHIP, " .
 		" v.APPROVAL_DATE, " .
 		" v.VISITOR_STATUS, " .
-		" v.AUTO_APPROVE, " .
+		" v.VISITOR_MESSAGE, " .
 		"i.INMATE_ID," .
 		" i.INMATE_NAME," .
 		" i.POD_CELL, " .
@@ -1080,7 +1140,7 @@ $my_column = $row->column_name;}
 		<?php
 	} else {
 		?>
-		<h4><em>No visitors saved for inmate =(</em></h4>
+		<h4><em>Currently not approved to visit any inmates</em></h4>
 		<?php
 	}
 
@@ -1245,7 +1305,7 @@ function all_visitors_render_list_page(){
 
 		<div id="icon-users" class="icon32"><br/></div>
 		<h3><span class="dashicons dashicons-editor-ul"></span> Visitors List <a href="./users.php?page=add_or_update_visitor" class="page-title-action">Add New</a> |
-			<a href="./wp-admin/user-new.php" class="page-title-action">Dowload as Excel/CSV</a> </h3>
+			<a href="#" class="page-title-action">Dowload as Excel/CSV</a> </h3>
 
 		<?php
 			if (!empty($_GET['s'])){
