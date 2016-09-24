@@ -20,7 +20,7 @@ HACC Repository for "The Pull Requests" team
 
 # Devpost Info
 
-* Link to a YouTube or Vimeo video demo (5 minutes max) - https://www.youtube.com/watch?v=wWQ60jViGrI
+* Link to a YouTube or Vimeo video demo (5 minutes max) - https://youtu.be/mEKoXzQ0osw
 
 ## 1. Clearly describe the problem you addressed
 
